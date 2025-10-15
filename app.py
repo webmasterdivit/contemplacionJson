@@ -197,21 +197,40 @@ class WordPressAPI:
                     print(f"✗ Error en página {page_num}: {e}")
                     continue
             
+            # Cargar URLs ya procesadas para evitar duplicados
+            existing_urls = self._load_existing_urls_from_json()
+            
             # Convertir a lista y ordenar por fecha (más recientes primero)
-            post_urls = sorted(list(all_post_urls), reverse=True)  # Procesar TODAS las URLs
+            all_urls_sorted = sorted(list(all_post_urls), reverse=True)
             
-            print(f"\n📊 Total de URLs únicas encontradas: {len(post_urls)}")
-            print(f"🔄 Procesando TODAS las URLs con delay de 1.5 segundos entre peticiones...")
+            # Filtrar URLs ya procesadas
+            urls_to_process = []
+            skipped_count = 0
             
-            if not post_urls:
-                print("No se encontraron URLs de posts")
+            for url in all_urls_sorted:
+                clean_url = url.split('#')[0].split('?')[0].rstrip('/')
+                if clean_url not in existing_urls:
+                    urls_to_process.append(url)
+                else:
+                    skipped_count += 1
+            
+            print(f"\n📊 Total de URLs únicas encontradas: {len(all_post_urls)}")
+            print(f"� URLs ya procesadas (omitidas): {skipped_count}")
+            print(f"🔄 URLs nuevas por procesar: {len(urls_to_process)}")
+            print(f"⏱️  Procesando con delay de 1.5 segundos entre peticiones...")
+            
+            if not urls_to_process:
+                print("🎉 Todas las URLs ya han sido procesadas!")
                 return []
             
             posts = []
             failed_urls = []
+            total_urls = len(all_post_urls)
+            processed_urls = skipped_count
             
-            for i, url in enumerate(post_urls, 1):
-                print(f"Procesando post {i}/{len(post_urls)}: {url}")
+            for i, url in enumerate(urls_to_process, 1):
+                current_total = processed_urls + i
+                print(f"Procesando post {i}/{len(urls_to_process)} (Total: {current_total}/{total_urls}): {url}")
                 
                 try:
                     # Scraper individual del post
@@ -232,7 +251,10 @@ class WordPressAPI:
                 
                 # Mostrar progreso cada 25 posts
                 if i % 25 == 0:
-                    print(f"\n📈 Progreso: {i}/{len(post_urls)} posts procesados ({len(posts)} exitosos, {len(failed_urls)} fallidos)")
+                    progress_pct = (current_total / total_urls) * 100
+                    print(f"\n📈 Progreso: {i}/{len(urls_to_process)} nuevos procesados")
+                    print(f"🏁 Total general: {current_total}/{total_urls} ({progress_pct:.1f}% completado)")
+                    print(f"✅ Exitosos: {len(posts)} | ❌ Fallidos: {len(failed_urls)}")
             
             # Guardar URLs fallidas en un log
             self._save_failed_urls_log(failed_urls)
@@ -295,6 +317,31 @@ class WordPressAPI:
         except Exception as e:
             print(f"⚠️  Error al cargar log de URLs fallidas: {e}")
             return []
+    
+    def _load_existing_urls_from_json(self, json_filename="salida/contemplaciones.json"):
+        """Carga URLs ya procesadas desde el archivo JSON existente"""
+        try:
+            import json
+            with open(json_filename, 'r', encoding='utf-8') as f:
+                contemplaciones = json.load(f)
+                
+            existing_urls = set()
+            for contemplacion in contemplaciones:
+                link = contemplacion.get('link', '')
+                if link:
+                    # Normalizar URL (quitar fragmentos y parámetros)
+                    clean_link = link.split('#')[0].split('?')[0].rstrip('/')
+                    existing_urls.add(clean_link)
+            
+            print(f"📚 Encontradas {len(existing_urls)} URLs ya procesadas en {json_filename}")
+            return existing_urls
+                
+        except FileNotFoundError:
+            print(f"📝 Archivo JSON no encontrado: {json_filename} - Empezando desde cero")
+            return set()
+        except Exception as e:
+            print(f"⚠️  Error al cargar URLs existentes: {e}")
+            return set()
     
     def _scrape_post_individual(self, url):
         """Scraper para obtener datos de un post individual"""
@@ -552,20 +599,53 @@ class ProcesadorContemplaciones:
             raise
     
     def generar_json(self, archivo_salida: str = "salida/contemplaciones.json"):
-        """Genera el archivo JSON con las contemplaciones"""
+        """Genera el archivo JSON con las contemplaciones (añade a las existentes)"""
         
         # Crear directorio de salida si no existe
         Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
         
-        # Convertir contemplaciones a diccionarios
-        datos_json = [contemplacion.to_dict() for contemplacion in self.contemplaciones]
+        # Cargar contemplaciones existentes si el archivo existe
+        contemplaciones_existentes = []
+        try:
+            with open(archivo_salida, 'r', encoding='utf-8') as f:
+                contemplaciones_existentes = json.load(f)
+            print(f"📚 Cargadas {len(contemplaciones_existentes)} contemplaciones existentes")
+        except FileNotFoundError:
+            print("📝 Creando nuevo archivo de contemplaciones")
+        except Exception as e:
+            print(f"⚠️  Error al cargar archivo existente: {e}")
         
-        # Escribir archivo JSON
+        # Crear conjunto de URLs existentes para evitar duplicados
+        urls_existentes = set()
+        for cont in contemplaciones_existentes:
+            link = cont.get('link', '')
+            if link:
+                clean_link = link.split('#')[0].split('?')[0].rstrip('/')
+                urls_existentes.add(clean_link)
+        
+        # Añadir solo contemplaciones nuevas
+        nuevas_contemplaciones = []
+        duplicados = 0
+        
+        for contemplacion in self.contemplaciones:
+            clean_link = contemplacion.link.split('#')[0].split('?')[0].rstrip('/')
+            if clean_link not in urls_existentes:
+                nuevas_contemplaciones.append(contemplacion.to_dict())
+                urls_existentes.add(clean_link)
+            else:
+                duplicados += 1
+        
+        # Combinar contemplaciones existentes con nuevas
+        todas_las_contemplaciones = contemplaciones_existentes + nuevas_contemplaciones
+        
+        # Escribir archivo JSON actualizado
         with open(archivo_salida, 'w', encoding='utf-8') as f:
-            json.dump(datos_json, f, ensure_ascii=False, indent=2)
+            json.dump(todas_las_contemplaciones, f, ensure_ascii=False, indent=2)
         
-        print(f"Archivo generado: {archivo_salida}")
-        print(f"Total de contemplaciones: {len(self.contemplaciones)}")
+        print(f"Archivo actualizado: {archivo_salida}")
+        print(f"Contemplaciones nuevas añadidas: {len(nuevas_contemplaciones)}")
+        print(f"Duplicados omitidos: {duplicados}")
+        print(f"Total de contemplaciones en archivo: {len(todas_las_contemplaciones)}")
     
     def mostrar_estadisticas(self):
         """Muestra estadísticas de las contemplaciones procesadas"""
@@ -601,9 +681,9 @@ def main():
         # Crear procesador
         procesador = ProcesadorContemplaciones("https://diegojavier.wordpress.com")
         
-        # Cargar datos desde WordPress
+        # Cargar datos desde WordPress (sin límite para procesar todas)
         print("Conectando con WordPress...")
-        procesador.cargar_desde_wordpress(max_posts=200)
+        procesador.cargar_desde_wordpress(max_posts=1000)  # Límite alto para procesar todas
         
         if not procesador.contemplaciones:
             print("No se pudieron obtener contemplaciones. Proceso terminado.")
