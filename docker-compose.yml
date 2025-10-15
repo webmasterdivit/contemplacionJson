@@ -1,0 +1,21 @@
+services:
+  contemplaciones:
+    build: .
+    container_name: contemplaciones-liturgicas
+    volumes:
+      # Monta el directorio de salida para persistir los archivos generados
+      - ./salida:/app/salida
+      # Opcionalmente, monta el directorio de datos si tienes archivos de entrada
+      - ./datos:/app/datos:ro
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    networks:
+      - contemplaciones-net
+
+networks:
+  contemplaciones-net:
+    driver: bridge
+
+volumes:
+  contemplaciones-data:
