@@ -1,0 +1,43 @@
+FROM python:3.11-slim
+
+# Metadatos
+LABEL maintainer="Sistema Automatizado"
+LABEL description="Procesador de Ejercicios Espirituales desde WordPress"
+LABEL version="1.0"
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Establecer directorio de trabajo
+WORKDIR /app
+
+# Copiar archivo de requirements
+COPY requirements.txt .
+
+# Instalar dependencias de Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar el script de aplicación
+COPY app_ejercicios.py .
+
+# Crear directorio de salida
+RUN mkdir -p salida
+
+# Crear usuario no-root para seguridad
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Comando por defecto
+CMD ["python", "app_ejercicios.py"]
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; print('OK')" || exit 1
