@@ -357,9 +357,18 @@ class WordPressAPI:
             slug_part = url_parts[-1]
             post_id = abs(hash(f"{date_part}{slug_part}")) % 100000  # ID basado en fecha y slug
             
-            # Extraer título
-            title_elem = soup.find('h1', class_='entry-title') or soup.find('h1') or soup.find('title')
-            title = title_elem.get_text(strip=True) if title_elem else "Sin título"
+            # Extraer título desde la etiqueta <title>
+            title_elem = soup.find('title')
+            if title_elem:
+                title = title_elem.get_text(strip=True)
+                # Remover el texto del final específico del sitio
+                suffix_to_remove = "| Ejercicios Espirituales -Taller de Perseverancia"
+                if title.endswith(suffix_to_remove):
+                    title = title[:-len(suffix_to_remove)].strip()
+            else:
+                # Fallback a otros elementos si no hay etiqueta title
+                title_elem = soup.find('h1', class_='entry-title') or soup.find('h1')
+                title = title_elem.get_text(strip=True) if title_elem else "Sin título"
             
             # Extraer contenido principal
             content_elem = (soup.find('div', class_='entry-content') or 
